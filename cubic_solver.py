@@ -1,58 +1,40 @@
-# cubic_solver.py
-import cmath
-import math
+# Radical-free cubic solver using trig identities and exp/log roots.
 
-def _complex_cbrt(z):
-    """Compute complex cube root using exp/log"""
-    if z == 0:
-        return 0+0j
-    return cmath.exp(cmath.log(z)/3)
+import cmath
+from math import pi
+
+_EPS = 1e-12
+
+def _half_power(z): return cmath.exp(0.5 * cmath.log(z))
+def _third_power(z): return cmath.exp(cmath.log(z) / 3)
+
+def _solve_quadratic(a, b, c):
+    if abs(a) < _EPS: return ([] if abs(b) < _EPS else [-c/b])
+    disc = b*b - 4*a*c
+    s = _half_power(disc)
+    return [(-b+s)/(2*a), (-b-s)/(2*a)]
 
 def solve_cubic(a, b, c, d):
-    tol = 1e-14
-    if abs(a) < tol:
-        # Degenerate cubic => quadratic
-        from quartic_solver import solve_quadratic
-        return solve_quadratic(b, c, d)
+    if abs(a) < _EPS:
+        return [complex(r) for r in _solve_quadratic(b, c, d)]
 
-    # Normalize to monic cubic: x^3 + A x^2 + B x + C = 0
-    A = b / a
-    B = c / a
-    C = d / a
+    A, B, C = b/a, c/a, d/a
+    p = B - A*A/3
+    q = 2*A**3/27 - A*B/3 + C
 
-    # Depressed cubic: x = y - A/3
-    A3 = A / 3
-    p = B - A*A3
-    q = 2*A3*A*A3 - A3*B + C
-
-    roots = []
-
-    discriminant = (q/2)**2 + (p/3)**3
-
-    if abs(discriminant) < tol:
-        discriminant = 0
-
-    if discriminant > 0:
-        # One real, two complex
-        sqrt_disc = cmath.exp(0.5*cmath.log(discriminant))
-        u = _complex_cbrt(-q/2 + sqrt_disc)
-        v = _complex_cbrt(-q/2 - sqrt_disc)
-        y1 = u + v
-        roots.append(y1 - A3)
-        omega = complex(-0.5, math.sqrt(3)/2)
-        roots.append(omega*u + omega.conjugate()*v - A3)
-        roots.append(omega.conjugate()*u + omega*v - A3)
-    elif discriminant == 0:
-        u = _complex_cbrt(-q/2)
-        roots.append(2*u - A3)
-        roots.append(-u - A3)
-        roots.append(-u - A3)
+    if abs(p) < _EPS:  # t^3 + q = 0
+        rho = _third_power(-q)
+        w1, w2 = cmath.exp(2j*pi/3), cmath.exp(4j*pi/3)
+        ts = [rho, rho*w1, rho*w2]
     else:
-        # Three real roots
-        r = 2*math.sqrt(-p/3)
-        phi = math.acos(-q/(2*((-p/3)**1.5)))
-        roots.append(r*math.cos(phi/3) - A3)
-        roots.append(r*math.cos((phi+2*math.pi)/3) - A3)
-        roots.append(r*math.cos((phi+4*math.pi)/3) - A3)
+        s = _half_power(-p/3)
+        if abs(s) < _EPS:
+            rho = _third_power(-q)
+            w1, w2 = cmath.exp(2j*pi/3), cmath.exp(4j*pi/3)
+            ts = [rho, rho*w1, rho*w2]
+        else:
+            phi = cmath.acos((-q/2)/(s**3))
+            r = 2*s
+            ts = [r*cmath.cos((phi+2*k*pi)/3) for k in range(3)]
 
-    return roots
+    return [t - A/3 for t in ts]
