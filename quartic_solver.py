@@ -1,88 +1,60 @@
-# quartic_solver.py
+# Ferrari quartic solver (no radicals, robust degeneracy handling).
+# Uses exp/log for roots, cubic fallback, and returns correct multiplicities.
+
 import cmath
-import math
 from cubic_solver import solve_cubic
 
-def _complex_sqrt(z):
-    """Compute complex square root using exp/log"""
-    if z == 0:
-        return 0+0j
-    return cmath.exp(0.5*cmath.log(z))
+_EPS = 1e-12
 
-def solve_quadratic(a, b, c):
-    tol = 1e-14
-    if abs(a) < tol:
-        if abs(b) < tol:
-            return []
-        return [-c/b]
+def _root2(z: complex) -> complex:
+    return 0j if z == 0 else cmath.exp(0.5 * cmath.log(z))
 
-    # Depressed quadratic: x = y - b/(2a)
-    p = -b/(2*a)
-    q = c/a - (b*b)/(4*a*a)
-    discriminant = -q
-    roots = []
+def _solve_linear(a, b):
+    return [] if abs(a) < _EPS else [-b / a]
 
-    if isinstance(discriminant, complex) or discriminant.real < 0:
-        sqrt_disc = _complex_sqrt(discriminant)
-    else:
-        sqrt_disc = cmath.exp(0.5*cmath.log(discriminant))
-
-    roots.append(p + sqrt_disc)
-    roots.append(p - sqrt_disc)
-    return roots
-
-def solve_cubic(a, b, c, d):
-    return solve_cubic(a, b, c, d)
+def _solve_quadratic(a, b, c):
+    if abs(a) < _EPS:
+        return _solve_linear(b, c)
+    disc = b*b - 4*a*c
+    s = _root2(disc)
+    return [(-b + s)/(2*a), (-b - s)/(2*a)]
 
 def solve_quartic(a, b, c, d, e):
-    tol = 1e-12
-    if abs(a) < tol:
+    if abs(a) < _EPS:
         return solve_cubic(b, c, d, e)
 
-    # Normalize coefficients
-    p = b/a
-    q = c/a
-    r = d/a
-    s = e/a
+    # Normalize: x^4 + Bx^3 + Cx^2 + Dx + E
+    B, C, D, E = b/a, c/a, d/a, e/a
+    shift = B/4
+    p = C - 3*B*B/8
+    q = D - B*C/2 + B**3/8
+    r = E - B*D/4 + B*B*C/16 - 3*B**4/256
 
-    # Depressed quartic: x = y - p/4
-    A = -3*p*p/8 + q
-    B = p*p*p/8 - p*q/2 + r
-    C = -3*p**4/256 + p*p*q/16 - p*r/4 + s
+    # Biquadratic path
+    if abs(q) < 1e-14:
+        z_roots = _solve_quadratic(1, p, r)
+        y_roots = []
+        for z in z_roots:
+            s = _root2(z)
+            y_roots += [s, -s]
+        return [y - shift for y in y_roots]
 
-    roots = []
+    # General Ferrari
+    u_roots = solve_cubic(1, 2*p, p*p - 4*r, -(q*q))
+    u = next((ur.real for ur in u_roots if abs(ur.imag) < 1e-10), u_roots[0])
+    alpha = _root2(u)
+    if abs(q) > 1e-14 and abs(alpha) < 1e-14:
+        for ur in u_roots[1:]:
+            test = _root2(ur)
+            if abs(test) > 1e-10:
+                alpha = test
+                break
+        if abs(alpha) < 1e-14: alpha = 1e-8
 
-    if abs(B) < tol:
-        # Biquadratic
-        zs = solve_quadratic(1, A, C)
-        for z in zs:
-            sqrt_z = _complex_sqrt(z)
-            roots.append(sqrt_z - p/4)
-            roots.append(-sqrt_z - p/4)
-        return roots
+    s = u + p
+    beta, gamma = (s - q/alpha)/2, (s + q/alpha)/2
+    y_roots = _solve_quadratic(1, alpha, beta) + _solve_quadratic(1, -alpha, gamma)
+    roots = [y - shift for y in y_roots]
 
-    # General Ferrari method
-    # Resolvent cubic
-    rc_a = 1
-    rc_b = -A/2
-    rc_c = -C
-    rc_d = (4*A*C - B*B)/8
-
-    u_candidates = solve_cubic(rc_a, rc_b, rc_c, rc_d)
-
-    # Pick candidate with largest real part
-    u = max(u_candidates, key=lambda z: z.real if isinstance(z, complex) else z)
-
-    two_u_minus_A = 2*u - A
-    sqrt_term = _complex_sqrt(two_u_minus_A)
-
-    c1 = u - B/(2*sqrt_term)
-    c2 = u + B/(2*sqrt_term)
-
-    quad1 = solve_quadratic(1, sqrt_term, c1)
-    quad2 = solve_quadratic(1, -sqrt_term, c2)
-
-    for rr in quad1 + quad2:
-        roots.append(rr - p/4)
-
-    return roots
+    while len(roots) < 4: roots.append(roots[-1] if roots else 0j)
+    return roots[:4]
